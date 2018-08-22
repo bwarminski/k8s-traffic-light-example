@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
+	"github.com/bwarminski/k8s-traffic-light-example/pkg/controller/util"
 )
 
 func main() {
@@ -47,8 +48,15 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// Setup controller dependencies
+	// TODO - provide a way to mock based on config
+
+	dependencies := controller.ControllerDependencies{
+		Clock: &util.RealClock{},
+	}
+
 	// Setup all Controllers
-	if err := controller.AddToManager(mgr); err != nil {
+	if err := controller.AddToManager(mgr, dependencies); err != nil {
 		log.Fatal(err)
 	}
 

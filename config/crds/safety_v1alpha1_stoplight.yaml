@@ -1,0 +1,51 @@
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  creationTimestamp: null
+  labels:
+    controller-tools.k8s.io: "1.0"
+  name: stoplights.safety.traffic.bwarminski.io
+spec:
+  group: safety.traffic.bwarminski.io
+  names:
+    kind: Stoplight
+    plural: stoplights
+  scope: Namespaced
+  validation:
+    openAPIV3Schema:
+      properties:
+        apiVersion:
+          type: string
+        kind:
+          type: string
+        metadata:
+          type: object
+        spec:
+          properties:
+            greenLightDurationSec:
+              format: int64
+              type: integer
+            redLightDurationSec:
+              format: int64
+              type: integer
+            yellowLightDurationSec:
+              format: int64
+              type: integer
+          type: object
+        status:
+          properties:
+            color:
+              type: string
+            emergencyMode:
+              type: boolean
+            lastTransition:
+              format: int64
+              type: integer
+          type: object
+      type: object
+  version: v1alpha1
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: null
