@@ -1,0 +1,3 @@
+version: "1"
+domain: traffic.bwarminski.io
+repo: github.com/bwarminski/k8s-traffic-light-example
