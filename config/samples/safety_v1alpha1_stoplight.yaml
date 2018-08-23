@@ -1,9 +1,8 @@
 apiVersion: safety.traffic.bwarminski.io/v1alpha1
 kind: Stoplight
 metadata:
-  labels:
-    controller-tools.k8s.io: "1.0"
-  name: stoplight-sample
+  name: elm-street-north-south
 spec:
-  # Add fields here
-  foo: bar
+  greenLightDurationSec: 30
+  redLightDurationSec: 30
+  yellowLightDurationSec: 10

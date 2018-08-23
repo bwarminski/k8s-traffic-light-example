@@ -1,15 +1,15 @@
 package util
 
 import (
-	"time"
 	"sync/atomic"
+	"time"
 )
 
 type Clock interface {
 	Now() int64
 }
 
-type RealClock struct {}
+type RealClock struct{}
 
 func (r *RealClock) Now() int64 {
 	return time.Now().Unix()

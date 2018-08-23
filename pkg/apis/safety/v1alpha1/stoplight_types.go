@@ -30,7 +30,7 @@ type StoplightSpec struct {
 // StoplightStatus defines the observed state of Stoplight
 type StoplightStatus struct {
 	Color          StoplightColor `json:"color,omitempty"`
-	LastTransition int64            `json:"lastTransition,omitempty"`
+	LastTransition int64          `json:"lastTransition,omitempty"`
 	EmergencyMode  bool           `json:"emergencyMode,omitempty"`
 }
 

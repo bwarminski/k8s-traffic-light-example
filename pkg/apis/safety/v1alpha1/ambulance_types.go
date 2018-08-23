@@ -22,13 +22,12 @@ import (
 
 // AmbulanceSpec defines the desired state of Ambulance
 type AmbulanceSpec struct {
-	LightsOn bool `json:"lightsOn,omitempty"`
+	LightsOn bool   `json:"lightsOn,omitempty"`
 	Crossing string `json:"crossing,omitempty"`
 }
 
 // AmbulanceStatus defines the observed state of Ambulance
 type AmbulanceStatus struct {
-
 }
 
 // +genclient

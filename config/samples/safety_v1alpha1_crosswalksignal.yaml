@@ -1,9 +1,8 @@
 apiVersion: safety.traffic.bwarminski.io/v1alpha1
 kind: CrosswalkSignal
 metadata:
-  labels:
-    controller-tools.k8s.io: "1.0"
-  name: crosswalksignal-sample
+  name: elm-street-east-west
 spec:
-  # Add fields here
-  foo: bar
+  stoplight: elm-street-north-south
+  flashingHandDurationSec: 10
+  greenLightBufferDurationSec: 10

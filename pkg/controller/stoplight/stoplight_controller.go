@@ -21,34 +21,32 @@ import (
 	"log"
 	"reflect"
 
+	"fmt"
 	safetyv1alpha1 "github.com/bwarminski/k8s-traffic-light-example/pkg/apis/safety/v1alpha1"
+	"github.com/bwarminski/k8s-traffic-light-example/pkg/controller/util"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"fmt"
-	controller2 "github.com/bwarminski/k8s-traffic-light-example/pkg/controller"
-	"github.com/bwarminski/k8s-traffic-light-example/pkg/controller/util"
 	"strings"
 	"time"
 )
 
-
 // Add creates a new Stoplight Controller and adds it to the Manager with default RBAC. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 // USER ACTION REQUIRED: update cmd/manager/main.go to call this safety.Add(mgr) to install this Controller
-func Add(mgr manager.Manager, d controller2.ControllerDependencies) error {
-	return add(mgr, newReconciler(mgr))
+func Add(mgr manager.Manager, d util.ControllerDependencies) error {
+	return add(mgr, newReconciler(mgr, d))
 }
 
 // newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager, d controller2.ControllerDependencies) *ReconcileStoplight {
+func newReconciler(mgr manager.Manager, d util.ControllerDependencies) *ReconcileStoplight {
 	return &ReconcileStoplight{Client: mgr.GetClient(), scheme: mgr.GetScheme(), events: make(chan event.GenericEvent), clock: d.Clock}
 }
 
@@ -84,18 +82,24 @@ func add(mgr manager.Manager, r *ReconcileStoplight) error {
 
 			// Optimization - Enqueue any other lights that were waiting on this ambulance
 			listOpts := &client.ListOptions{Namespace: ambulance.Namespace}
-			listOpts.SetLabelSelector(fmt.Sprintf("ambulance.%s", ambulance.Name))
+			err := listOpts.SetLabelSelector(fmt.Sprintf("ambulance.%s", ambulance.Name))
+			if err != nil {
+				log.Printf("Error setting label selector - %s", err.Error())
+				return results
+			}
 			stoplights := &safetyv1alpha1.StoplightList{}
-			err := r.Client.List(context.TODO(), listOpts, stoplights)
+			err = r.Client.List(context.TODO(), listOpts, stoplights)
 			if err == nil {
-				for _, stoplight := range(stoplights.Items) {
+				for _, stoplight := range stoplights.Items {
 					results = append(results, reconcile.Request{
 						NamespacedName: types.NamespacedName{
-							Name: stoplight.Name,
+							Name:      stoplight.Name,
 							Namespace: stoplight.Namespace,
 						},
 					})
 				}
+			} else {
+				log.Printf("Error listing stoplights - %s", err.Error())
 			}
 			return results
 		})
@@ -125,13 +129,11 @@ type ReconcileStoplight struct {
 	client.Client
 	scheme *runtime.Scheme
 	events chan event.GenericEvent
-	clock util.Clock
+	clock  util.Clock
 }
 
 // Reconcile reads that state of the cluster for a Stoplight object and makes changes based on the state read
 // and what is in the Stoplight.Spec
-
-// Automatically generate RBAC rules to allow the Controller to read and write Deployments
 
 // +kubebuilder:rbac:groups=safety.traffic.bwarminski.io,resources=stoplights,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=safety.traffic.bwarminski.io,resources=ambulances,verbs=get;list;watch
@@ -165,19 +167,19 @@ func (r *ReconcileStoplight) Reconcile(request reconcile.Request) (reconcile.Res
 
 	switch stoplight.Status.Color {
 	case safetyv1alpha1.Red:
-		if !desiredStatus.EmergencyMode && stoplight.Status.LastTransition + stoplight.Spec.RedLightDurationSec <= now {
+		if !desiredStatus.EmergencyMode && stoplight.Status.LastTransition+stoplight.Spec.RedLightDurationSec <= now {
 			desiredStatus.Color = safetyv1alpha1.Green
 			desiredStatus.LastTransition = now
 			r.enqueueReminder(now+stoplight.Spec.GreenLightDurationSec, types.NamespacedName{Namespace: stoplight.Namespace, Name: stoplight.Name})
 		}
 	case safetyv1alpha1.Yellow:
-		if stoplight.Status.LastTransition + stoplight.Spec.YellowLightDurationSec <= now {
+		if stoplight.Status.LastTransition+stoplight.Spec.YellowLightDurationSec <= now {
 			desiredStatus.Color = safetyv1alpha1.Red
 			desiredStatus.LastTransition = now
 			r.enqueueReminder(now+stoplight.Spec.RedLightDurationSec, types.NamespacedName{Namespace: stoplight.Namespace, Name: stoplight.Name})
 		}
 	case safetyv1alpha1.Green:
-		if desiredStatus.EmergencyMode || stoplight.Status.LastTransition + stoplight.Spec.GreenLightDurationSec <= now {
+		if desiredStatus.EmergencyMode || stoplight.Status.LastTransition+stoplight.Spec.GreenLightDurationSec <= now {
 			desiredStatus.Color = safetyv1alpha1.Yellow
 			desiredStatus.LastTransition = now
 			r.enqueueReminder(now+stoplight.Spec.YellowLightDurationSec, types.NamespacedName{Namespace: stoplight.Namespace, Name: stoplight.Name})
@@ -190,12 +192,12 @@ func (r *ReconcileStoplight) Reconcile(request reconcile.Request) (reconcile.Res
 
 	desiredLabels := make(map[string]string)
 	if stoplight.Labels != nil {
-		for _, a := range(ambulances.Items) {
+		for _, a := range ambulances.Items {
 			// Indicate that we're watching for this ambulance
 			desiredLabels[fmt.Sprintf("ambulance.%s", a.Name)] = "approaching"
 		}
-		for k,v := range(stoplight.Labels) {
-			if !strings.HasPrefix( k, "ambulance.") {
+		for k, v := range stoplight.Labels {
+			if !strings.HasPrefix(k, "ambulance.") {
 				desiredLabels[k] = v
 			}
 		}
@@ -229,6 +231,6 @@ func (r *ReconcileStoplight) enqueueReminder(when int64, name types.NamespacedNa
 			log.Printf("Unable to process timer for %s/%s - %s\n", name.Namespace, name.Name, err.Error())
 			return
 		}
-		r.events <- event.GenericEvent{stoplight.GetObjectMeta(), stoplight }
+		r.events <- event.GenericEvent{Meta: stoplight.GetObjectMeta(), Object: stoplight}
 	}()
 }

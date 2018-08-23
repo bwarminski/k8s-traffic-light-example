@@ -22,22 +22,23 @@ import (
 
 // CrosswalkSignalSpec defines the desired state of CrosswalkSignal
 type CrosswalkSignalSpec struct {
-	Stoplight string `json:"stoplight,omitempty"`
-	FlashingHandDurationSec int `json:"flashingHandDurationSec,omitempty"`
-	GreenLightBufferDurationSec int `json:"greenLightBufferDurationSec,omitempty"`
+	Stoplight                   string `json:"stoplight,omitempty"`
+	FlashingHandDurationSec     int64  `json:"flashingHandDurationSec,omitempty"`
+	GreenLightBufferDurationSec int64  `json:"greenLightBufferDurationSec,omitempty"`
 }
 
 // CrosswalkSignalStatus defines the observed state of CrosswalkSignal
 type CrosswalkSignalStatus struct {
-	Symbol CrosswalkSymbol `json:"symbol,omitempty"`
+	Symbol         CrosswalkSymbol `json:"symbol,omitempty"`
+	LastTransition int64           `json:"lastTransition,omitempty"`
 }
 
 type CrosswalkSymbol string
 
 const (
-	Walk CrosswalkSymbol = "Walk"
+	Walk       CrosswalkSymbol = "Walk"
 	FlashyHand CrosswalkSymbol = "FlashyHand"
-	DontWalk CrosswalkSymbol = "DontWalk"
+	DontWalk   CrosswalkSymbol = "DontWalk"
 )
 
 // +genclient

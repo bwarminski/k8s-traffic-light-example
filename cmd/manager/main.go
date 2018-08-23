@@ -21,11 +21,11 @@ import (
 
 	"github.com/bwarminski/k8s-traffic-light-example/pkg/apis"
 	"github.com/bwarminski/k8s-traffic-light-example/pkg/controller"
+	"github.com/bwarminski/k8s-traffic-light-example/pkg/controller/util"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
-	"github.com/bwarminski/k8s-traffic-light-example/pkg/controller/util"
 )
 
 func main() {
@@ -51,7 +51,7 @@ func main() {
 	// Setup controller dependencies
 	// TODO - provide a way to mock based on config
 
-	dependencies := controller.ControllerDependencies{
+	dependencies := util.ControllerDependencies{
 		Clock: &util.RealClock{},
 	}
 

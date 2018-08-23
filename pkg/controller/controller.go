@@ -17,23 +17,19 @@ limitations under the License.
 package controller
 
 import (
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"github.com/bwarminski/k8s-traffic-light-example/pkg/controller/util"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
 // AddToManagerFuncs is a list of functions to add all Controllers to the Manager
-var AddToManagerFuncs []func(manager.Manager, ControllerDependencies) error
+var AddToManagerFuncs []func(manager.Manager, util.ControllerDependencies) error
 
 // AddToManager adds all Controllers to the Manager
-func AddToManager(m manager.Manager, d ControllerDependencies) error {
+func AddToManager(m manager.Manager, d util.ControllerDependencies) error {
 	for _, f := range AddToManagerFuncs {
 		if err := f(m, d); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-type ControllerDependencies struct {
-	Clock util.Clock
 }

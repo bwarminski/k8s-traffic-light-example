@@ -1,9 +1,7 @@
 apiVersion: safety.traffic.bwarminski.io/v1alpha1
 kind: Ambulance
 metadata:
-  labels:
-    controller-tools.k8s.io: "1.0"
-  name: ambulance-sample
+  name: martys-ambulance-service-unit-223
 spec:
-  # Add fields here
-  foo: bar
+  lightsOn: true
+  crossing: elm-street-north-south

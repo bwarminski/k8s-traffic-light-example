@@ -5,33 +5,9 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - apps
-  resources:
-  - deployments
-  verbs:
-  - get
-  - list
-  - watch
-  - create
-  - update
-  - patch
-  - delete
-- apiGroups:
   - safety.traffic.bwarminski.io
   resources:
   - crosswalksignals
-  verbs:
-  - get
-  - list
-  - watch
-  - create
-  - update
-  - patch
-  - delete
-- apiGroups:
-  - apps
-  resources:
-  - deployments
   verbs:
   - get
   - list
@@ -48,7 +24,23 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - safety.traffic.bwarminski.io
+  resources:
+  - stoplights
+  verbs:
+  - get
+  - list
+  - watch
   - create
   - update
   - patch
   - delete
+- apiGroups:
+  - safety.traffic.bwarminski.io
+  resources:
+  - ambulances
+  verbs:
+  - get
+  - list
+  - watch

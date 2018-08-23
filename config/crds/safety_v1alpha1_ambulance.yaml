@@ -21,6 +21,11 @@ spec:
         metadata:
           type: object
         spec:
+          properties:
+            crossing:
+              type: string
+            lightsOn:
+              type: boolean
           type: object
         status:
           type: object

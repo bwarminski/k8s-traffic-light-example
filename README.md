@@ -65,6 +65,7 @@ Once operational, a crosswalk signal defines its status in terms of its symbol.
 ```
 status:
   symbol: Walk
+  lastTransition: 1234
 ```
 
 The symbols of a crosswalk signal are either `Walk`, `DontWalk` or `FlashyHand`. Absence of a crosswalk signal

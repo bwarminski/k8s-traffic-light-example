@@ -21,37 +21,35 @@ import (
 	"log"
 	"reflect"
 
+	"fmt"
 	safetyv1alpha1 "github.com/bwarminski/k8s-traffic-light-example/pkg/apis/safety/v1alpha1"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
+	"github.com/bwarminski/k8s-traffic-light-example/pkg/controller/util"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	controller2 "github.com/bwarminski/k8s-traffic-light-example/pkg/controller"
+	"time"
 )
-
 
 // Add creates a new CrosswalkSignal Controller and adds it to the Manager with default RBAC. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func Add(mgr manager.Manager, d controller2.ControllerDependencies) error {
-	return add(mgr, newReconciler(mgr))
+func Add(mgr manager.Manager, d util.ControllerDependencies) error {
+	return add(mgr, newReconciler(mgr, d))
 }
 
 // newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager) reconcile.Reconciler {
-	return &ReconcileCrosswalkSignal{Client: mgr.GetClient(), scheme: mgr.GetScheme()}
+func newReconciler(mgr manager.Manager, d util.ControllerDependencies) *ReconcileCrosswalkSignal {
+	return &ReconcileCrosswalkSignal{Client: mgr.GetClient(), scheme: mgr.GetScheme(), events: make(chan event.GenericEvent), clock: d.Clock}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
-func add(mgr manager.Manager, r reconcile.Reconciler) error {
+func add(mgr manager.Manager, r *ReconcileCrosswalkSignal) error {
 	// Create a new controller
 	c, err := controller.New("crosswalksignal-controller", mgr, controller.Options{Reconciler: r})
 	if err != nil {
@@ -64,16 +62,51 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		return err
 	}
 
-	// Uncomment watch a Deployment created by CrosswalkSignal - change this for objects you create
-	err = c.Watch(&source.Kind{Type: &appsv1.Deployment{}}, &handler.EnqueueRequestForOwner{
-		IsController: true,
-		OwnerType:    &safetyv1alpha1.CrosswalkSignal{},
+	stoplightsToSignals := handler.ToRequestsFunc(
+		func(a handler.MapObject) []reconcile.Request {
+			stoplight, ok := a.Object.(*safetyv1alpha1.Stoplight)
+			var results []reconcile.Request
+			if !ok {
+				return results
+			}
+
+			// Find all cross walks protecting this stoplight
+			listOpts := &client.ListOptions{Namespace: stoplight.Namespace}
+			err := listOpts.SetFieldSelector(fmt.Sprintf("spec.stoplight = %s", stoplight.Name))
+			if err != nil {
+				log.Printf("Error setting field selector - %s", err.Error())
+				return results
+			}
+			signals := &safetyv1alpha1.CrosswalkSignalList{}
+			err = r.Client.List(context.TODO(), listOpts, signals)
+			if err == nil {
+				for _, signal := range signals.Items {
+					results = append(results, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      signal.Name,
+							Namespace: signal.Namespace,
+						},
+					})
+				}
+			} else {
+				log.Printf("Error listing signals - %s", err.Error())
+			}
+			return results
+		})
+
+	err = c.Watch(&source.Kind{Type: &safetyv1alpha1.Stoplight{}}, &handler.EnqueueRequestsFromMapFunc{
+		ToRequests: stoplightsToSignals,
 	})
 	if err != nil {
 		return err
 	}
 
-	return nil
+	// Watch for inbound events from the controller's events channel. This will be used to enqueue a crosswalk signal
+	// when it's time for it to make a transition.
+	return c.Watch(
+		&source.Channel{Source: r.events},
+		&handler.EnqueueRequestForObject{},
+	)
 }
 
 var _ reconcile.Reconciler = &ReconcileCrosswalkSignal{}
@@ -82,19 +115,19 @@ var _ reconcile.Reconciler = &ReconcileCrosswalkSignal{}
 type ReconcileCrosswalkSignal struct {
 	client.Client
 	scheme *runtime.Scheme
+	events chan event.GenericEvent
+	clock  util.Clock
 }
 
 // Reconcile reads that state of the cluster for a CrosswalkSignal object and makes changes based on the state read
 // and what is in the CrosswalkSignal.Spec
-// TODO(user): Modify this Reconcile function to implement your Controller logic.  The scaffolding writes
-// a Deployment as an example
-// Automatically generate RBAC rules to allow the Controller to read and write Deployments
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+
 // +kubebuilder:rbac:groups=safety.traffic.bwarminski.io,resources=crosswalksignals,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=safety.traffic.bwarminski.io,resources=stoplights,verbs=get;list;watch
 func (r *ReconcileCrosswalkSignal) Reconcile(request reconcile.Request) (reconcile.Result, error) {
 	// Fetch the CrosswalkSignal instance
-	instance := &safetyv1alpha1.CrosswalkSignal{}
-	err := r.Get(context.TODO(), request.NamespacedName, instance)
+	signal := &safetyv1alpha1.CrosswalkSignal{}
+	err := r.Get(context.TODO(), request.NamespacedName, signal)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// Object not found, return.  Created objects are automatically garbage collected.
@@ -105,57 +138,83 @@ func (r *ReconcileCrosswalkSignal) Reconcile(request reconcile.Request) (reconci
 		return reconcile.Result{}, err
 	}
 
-	// TODO(user): Change this to be the object type created by your controller
-	// Define the desired Deployment object
-	deploy := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      instance.Name + "-deployment",
-			Namespace: instance.Namespace,
-		},
-		Spec: appsv1.DeploymentSpec{
-			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"deployment": instance.Name + "-deployment"},
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"deployment": instance.Name + "-deployment"}},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  "nginx",
-							Image: "nginx",
-						},
-					},
-				},
-			},
-		},
-	}
-	if err := controllerutil.SetControllerReference(instance, deploy, r.scheme); err != nil {
-		return reconcile.Result{}, err
-	}
+	// Search for the stoplight we care about
+	var stoplight *safetyv1alpha1.Stoplight
+	var nextGreen int64
+	var nextTransition int64
 
-	// TODO(user): Change this for the object type created by your controller
-	// Check if the Deployment already exists
-	found := &appsv1.Deployment{}
-	err = r.Get(context.TODO(), types.NamespacedName{Name: deploy.Name, Namespace: deploy.Namespace}, found)
-	if err != nil && errors.IsNotFound(err) {
-		log.Printf("Creating Deployment %s/%s\n", deploy.Namespace, deploy.Name)
-		err = r.Create(context.TODO(), deploy)
+	if signal.Spec.Stoplight != "" {
+		stoplight = &safetyv1alpha1.Stoplight{}
+		err = r.Get(context.TODO(), types.NamespacedName{Namespace: request.Namespace, Name: signal.Spec.Stoplight}, stoplight)
 		if err != nil {
-			return reconcile.Result{}, err
+			if !errors.IsNotFound(err) {
+				return reconcile.Result{}, err
+			} else {
+				// Not found, clear it out. Option[Stoplight] would be nifty
+				stoplight = nil
+			}
+		} else {
+			nextGreen = stoplight.Status.LastTransition + stoplight.Spec.RedLightDurationSec
+			nextTransition = nextGreen - signal.Spec.FlashingHandDurationSec - signal.Spec.GreenLightBufferDurationSec
 		}
-	} else if err != nil {
-		return reconcile.Result{}, err
 	}
 
-	// TODO(user): Change this for the object type created by your controller
+	now := r.clock.Now()
+	desiredStatus := signal.Status.DeepCopy()
+
+	switch signal.Status.Symbol {
+	case safetyv1alpha1.DontWalk:
+		if stoplight != nil && stoplight.Status.Color == safetyv1alpha1.Red && !stoplight.Status.EmergencyMode {
+			desiredStatus.Symbol = safetyv1alpha1.Walk
+			desiredStatus.LastTransition = now
+			r.enqueueReminder(nextTransition, types.NamespacedName{Namespace: signal.Namespace, Name: signal.Name})
+		}
+	case safetyv1alpha1.Walk:
+		if stoplight == nil || stoplight.Status.Color != safetyv1alpha1.Red {
+			desiredStatus.Symbol = safetyv1alpha1.DontWalk
+			desiredStatus.LastTransition = now
+		} else if nextTransition <= now {
+			desiredStatus.Symbol = safetyv1alpha1.FlashyHand
+			desiredStatus.LastTransition = now
+			r.enqueueReminder(now+signal.Spec.FlashingHandDurationSec, types.NamespacedName{Namespace: signal.Namespace, Name: signal.Name})
+		}
+	case safetyv1alpha1.FlashyHand:
+		if stoplight == nil || stoplight.Status.Color != safetyv1alpha1.Red || nextGreen-signal.Spec.GreenLightBufferDurationSec <= now {
+			desiredStatus.Symbol = safetyv1alpha1.DontWalk
+			desiredStatus.LastTransition = now
+		}
+	default:
+		desiredStatus.Symbol = safetyv1alpha1.DontWalk
+		desiredStatus.LastTransition = now
+	}
+
 	// Update the found object and write the result back if there are any changes
-	if !reflect.DeepEqual(deploy.Spec, found.Spec) {
-		found.Spec = deploy.Spec
-		log.Printf("Updating Deployment %s/%s\n", deploy.Namespace, deploy.Name)
-		err = r.Update(context.TODO(), found)
+	if !reflect.DeepEqual(&signal.Status, desiredStatus) {
+		signal.Status = *desiredStatus
+		log.Printf("Updating Signal %s/%s to %s\n", signal.Namespace, signal.Name, signal.Status.Symbol)
+		err = r.Update(context.TODO(), signal)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
 	}
 	return reconcile.Result{}, nil
+}
+
+// Defers a function that will requeue our signal at a certain point in the future
+func (r *ReconcileCrosswalkSignal) enqueueReminder(when int64, name types.NamespacedName) {
+	now := r.clock.Now()
+	go func() {
+		if when > now {
+			time.Sleep(time.Second * time.Duration(when-now))
+		}
+		signal := &safetyv1alpha1.CrosswalkSignal{}
+		// This is a little silly - we'll end up discarding and fetching it again, but whatever, makes for an easy example
+		// We also copy pasted this exact same code from the stoplight controller
+		err := r.Get(context.TODO(), name, signal)
+		if err != nil {
+			log.Printf("Unable to process timer for %s/%s - %s\n", name.Namespace, name.Name, err.Error())
+			return
+		}
+		r.events <- event.GenericEvent{Meta: signal.GetObjectMeta(), Object: signal}
+	}()
 }
