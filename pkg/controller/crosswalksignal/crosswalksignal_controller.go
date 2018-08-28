@@ -62,6 +62,7 @@ func add(mgr manager.Manager, r *ReconcileCrosswalkSignal) error {
 		return err
 	}
 
+	// Set up an indexing function so we can use a field selector
 	mgr.GetCache().IndexField(&safetyv1alpha1.CrosswalkSignal{}, "spec.stoplight", client.IndexerFunc(func(o runtime.Object) []string {
 		var result []string
 		signal, ok := o.(*safetyv1alpha1.CrosswalkSignal)
@@ -80,10 +81,6 @@ func add(mgr manager.Manager, r *ReconcileCrosswalkSignal) error {
 
 			// Find all cross walks protecting this stoplight
 			listOpts := &client.ListOptions{Namespace: stoplight.Namespace}
-
-			// HACK! - controller-manager doesn't support advanced field selectors
-			// Select every ambulance and filter.
-			// TODO - Implement ambulance controller and vault the stoplight to a label selector
 
 			// The commented code below is what we wnt
 			err := listOpts.SetFieldSelector(fmt.Sprintf("spec.stoplight=%s", stoplight.Name))
