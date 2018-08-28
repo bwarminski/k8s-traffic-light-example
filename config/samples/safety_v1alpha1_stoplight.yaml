@@ -3,6 +3,6 @@ kind: Stoplight
 metadata:
   name: elm-street-north-south
 spec:
-  greenLightDurationSec: 30
-  redLightDurationSec: 30
-  yellowLightDurationSec: 10
+  greenLightDurationSec: 10
+  redLightDurationSec: 10
+  yellowLightDurationSec: 2

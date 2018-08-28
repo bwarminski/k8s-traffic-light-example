@@ -4,5 +4,5 @@ metadata:
   name: elm-street-east-west
 spec:
   stoplight: elm-street-north-south
-  flashingHandDurationSec: 10
-  greenLightBufferDurationSec: 10
+  flashingHandDurationSec: 2
+  greenLightBufferDurationSec: 2

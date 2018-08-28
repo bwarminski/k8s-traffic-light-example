@@ -64,6 +64,15 @@ func add(mgr manager.Manager, r *ReconcileStoplight) error {
 		return err
 	}
 
+	mgr.GetCache().IndexField(&safetyv1alpha1.Ambulance{}, "composite.crossingWithLightsOn", client.IndexerFunc(func(o runtime.Object) []string {
+		var result []string
+		ambulance, ok := o.(*safetyv1alpha1.Ambulance)
+		if ok && ambulance.Spec.LightsOn {
+			result = append(result, ambulance.Spec.Crossing)
+		}
+		return result
+	}))
+
 	ambulancesToLights := handler.ToRequestsFunc(
 		func(a handler.MapObject) []reconcile.Request {
 			ambulance, ok := a.Object.(*safetyv1alpha1.Ambulance)
@@ -116,10 +125,26 @@ func add(mgr manager.Manager, r *ReconcileStoplight) error {
 
 	// Watch for inbound events from the controller's events channel. This will be used to enqueue a stoplight
 	// when it's time for it to make a transition.
-	return c.Watch(
-		&source.Channel{Source: r.events},
-		&handler.EnqueueRequestForObject{},
-	)
+	// This is wrapped as a Runnable because registration of this watch can't occur until the manager has been initialized
+	// with a stop channel
+	mgr.Add(manager.RunnableFunc(func(stop <-chan struct{}) error {
+		innerErr := c.Watch(
+			&source.Channel{Source: r.events},
+			&handler.EnqueueRequestForObject{},
+		)
+
+		if innerErr != nil {
+			return innerErr
+		}
+
+		// Block until channel closes
+		select {
+		case <-stop:
+			return nil
+		}
+
+	}))
+	return nil
 }
 
 var _ reconcile.Reconciler = &ReconcileStoplight{}
@@ -152,8 +177,14 @@ func (r *ReconcileStoplight) Reconcile(request reconcile.Request) (reconcile.Res
 
 	ambulances := &safetyv1alpha1.AmbulanceList{}
 	listOpts := &client.ListOptions{Namespace: stoplight.Namespace}
-	listOpts.SetFieldSelector(fmt.Sprintf("spec.crossing=%s,spec.lightsOn=true", stoplight.Name))
+	//err = listOpts.SetFieldSelector(fmt.Sprintf("spec.crossing=%s,spec.lightsOn=true", stoplight.Name))
+	err = listOpts.SetFieldSelector(fmt.Sprintf("composite.crossingWithLightsOn=%s", stoplight.Name))
+	if err != nil {
+		log.Printf("Error setting ambulance field selector - %s", err.Error())
+		return reconcile.Result{}, err
+	}
 	if err = r.List(context.TODO(), listOpts, ambulances); err != nil {
+		log.Printf("Error listing ambulances - %s", err.Error())
 		return reconcile.Result{}, err
 	}
 
@@ -165,6 +196,7 @@ func (r *ReconcileStoplight) Reconcile(request reconcile.Request) (reconcile.Res
 		desiredStatus.EmergencyMode = true
 	}
 
+	// TODO: Always enqueue reminders
 	switch stoplight.Status.Color {
 	case safetyv1alpha1.Red:
 		if !desiredStatus.EmergencyMode && stoplight.Status.LastTransition+stoplight.Spec.RedLightDurationSec <= now {
@@ -204,13 +236,15 @@ func (r *ReconcileStoplight) Reconcile(request reconcile.Request) (reconcile.Res
 	}
 
 	// Update our status and labels if they've changed
-	if !reflect.DeepEqual(&stoplight.Status, desiredStatus) || !reflect.DeepEqual(stoplight.Labels, desiredLabels) {
+	labelsPopulated := len(stoplight.Labels) > 0 || len(desiredLabels) > 0
+	if !reflect.DeepEqual(stoplight.Status, *desiredStatus) || (labelsPopulated && !reflect.DeepEqual(stoplight.Labels, desiredLabels)) {
 		stoplight.Status = *desiredStatus
 		stoplight.Labels = desiredLabels
 
 		log.Printf("Updating Stoplight %s/%s to %s\n", stoplight.Namespace, stoplight.Name, stoplight.Status.Color)
 		err = r.Update(context.TODO(), stoplight)
 		if err != nil {
+			log.Printf("Error updating Stoplight - %s", err.Error())
 			return reconcile.Result{}, err
 		}
 	}

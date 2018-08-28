@@ -62,6 +62,14 @@ func add(mgr manager.Manager, r *ReconcileCrosswalkSignal) error {
 		return err
 	}
 
+	mgr.GetCache().IndexField(&safetyv1alpha1.CrosswalkSignal{}, "spec.stoplight", client.IndexerFunc(func(o runtime.Object) []string {
+		var result []string
+		signal, ok := o.(*safetyv1alpha1.CrosswalkSignal)
+		if ok {
+			result = append(result, signal.Spec.Stoplight)
+		}
+		return result
+	}))
 	stoplightsToSignals := handler.ToRequestsFunc(
 		func(a handler.MapObject) []reconcile.Request {
 			stoplight, ok := a.Object.(*safetyv1alpha1.Stoplight)
@@ -72,7 +80,13 @@ func add(mgr manager.Manager, r *ReconcileCrosswalkSignal) error {
 
 			// Find all cross walks protecting this stoplight
 			listOpts := &client.ListOptions{Namespace: stoplight.Namespace}
-			err := listOpts.SetFieldSelector(fmt.Sprintf("spec.stoplight = %s", stoplight.Name))
+
+			// HACK! - controller-manager doesn't support advanced field selectors
+			// Select every ambulance and filter.
+			// TODO - Implement ambulance controller and vault the stoplight to a label selector
+
+			// The commented code below is what we wnt
+			err := listOpts.SetFieldSelector(fmt.Sprintf("spec.stoplight=%s", stoplight.Name))
 			if err != nil {
 				log.Printf("Error setting field selector - %s", err.Error())
 				return results
@@ -81,12 +95,14 @@ func add(mgr manager.Manager, r *ReconcileCrosswalkSignal) error {
 			err = r.Client.List(context.TODO(), listOpts, signals)
 			if err == nil {
 				for _, signal := range signals.Items {
+					//if signal.Spec.Stoplight == stoplight.Name { // Hack field selector
 					results = append(results, reconcile.Request{
 						NamespacedName: types.NamespacedName{
 							Name:      signal.Name,
 							Namespace: signal.Namespace,
 						},
 					})
+					//}
 				}
 			} else {
 				log.Printf("Error listing signals - %s", err.Error())
@@ -103,10 +119,27 @@ func add(mgr manager.Manager, r *ReconcileCrosswalkSignal) error {
 
 	// Watch for inbound events from the controller's events channel. This will be used to enqueue a crosswalk signal
 	// when it's time for it to make a transition.
-	return c.Watch(
-		&source.Channel{Source: r.events},
-		&handler.EnqueueRequestForObject{},
-	)
+	// This is wrapped as a Runnable because registration of this watch can't occur until the manager has been initialized
+	// with a stop channel
+
+	mgr.Add(manager.RunnableFunc(func(stop <-chan struct{}) error {
+		innerErr := c.Watch(
+			&source.Channel{Source: r.events},
+			&handler.EnqueueRequestForObject{},
+		)
+
+		if innerErr != nil {
+			return innerErr
+		}
+
+		// Block until channel closes
+		select {
+		case <-stop:
+			return nil
+		}
+
+	}))
+	return nil
 }
 
 var _ reconcile.Reconciler = &ReconcileCrosswalkSignal{}
